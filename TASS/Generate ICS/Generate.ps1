@@ -15,11 +15,15 @@ $URI = $School.URL
 $CompanyCode = $School.Comp_Code
 # Set School Name to be used in Calendar Name.
 $SchoolName = $School.Name
+# Set School Name to be used in Calendar Name.
+$CalendarType = $School.Type
 
 Write-Debug "Starting ICS file creation for $SchoolName."
 
 # Required format for ICS file.
 $ICS_DateFormat = "yyyyMMddTHHmmss"
+# Required format for All Day Events in ICS file.
+$ICS_AllDayDateFormat = "yyyyMMdd"
 
 # Sets the creation date of the event to ICS file generation date & time.
 $CreateDate = Get-Date -Format $ICS_DateFormat
@@ -29,7 +33,7 @@ $DateStamp = Get-Date -Format $ICS_DateFormat
 $LastModified = Get-Date -Format $ICS_DateFormat
 
 # Sets temporary filename to build ICS.
-$TempFile = "$Folder\TEMP\$CompanyCode.temp"
+$TempFile = "$Folder\TEMP\$($CompanyCode)_$($CalendarType).temp"
 # Sets final filename for ICS.
 $FinalFileName = "$Folder\TEMP\$CompanyCode.ics"
 # Sets the final destination to move ICS and index.html files to.
@@ -38,10 +42,10 @@ $Destination = $args[1]
 # This section sets the ICS header information.
 $ICS_Header = @"
 BEGIN:VCALENDAR
-PRODID:-//Mitchell Kellett//$CompanyCode@TASS.web//EN
+PRODID:-//Mitchell Kellett//$($CompanyCode)-$($CalendarType)@TASS.web//EN
 VERSION:2.0
 METHOD:PUBLISH
-X-WR-CALNAME:$SchoolName Calendar
+X-WR-CALNAME:$SchoolName $CalendarType Calendar
 X-PUBLISHED-TTL:PT15M
 "@
 
@@ -200,33 +204,60 @@ Write-Debug "Added TimeZone Information to ICS for $SchoolName."
 $Response = Invoke-RestMethod -Uri $URI
 Write-Debug "Polled TASS for $SchoolName."
 
-# This section cleans up retrieved data.
-$Response = $Response.Replace('events: [','[')
-$Response = $Response.Replace('-1: "PK"','00: "PK"')
-
-# Convert from JSON to PowerShell Object.
-$Response = ConvertFrom-Json $Response
-
 # This section creates an event for each event in the JSON and cleans up the variable names.
-foreach ($event in $Response) {
-$id = $event.id
-$location = $event.location
-$description = $event.description
-$title = $event.title
-$start = $event.start
-$end = $event.end
-$eurl = $event.url_link
+foreach ($event in $Response.events) {
+    $id = $event.id
+    $location = $event.location
+    $description = $event.description
+    $title = $event.title
+    $orig_start = $event.start
+    $orig_end = $event.end
+    $eurl = $event.url_link
 
-# This section parses TASS JSON date to PowerShell date format.
-$start = [datetime]::parseexact($start, 'yyyy-MM-dd HH:mm:ss', $null)
-$end = [datetime]::parseexact($end, 'yyyy-MM-dd HH:mm:ss', $null)
+    if($event.all_day) {
+    # This section parses TASS JSON date to PowerShell date format.
+    $start = [datetime]::parseexact($orig_start, 'yyyy-MM-dd HH:mm:ss', $null)
+    $end = [datetime]::parseexact($orig_end, 'yyyy-MM-dd HH:mm:ss', $null)
 
-# This section parses PowerShell date to ICS date format.
-$start = Get-Date $start -Format $ICS_DateFormat
-$end = Get-Date $end -Format $ICS_DateFormat
+    # This section parses PowerShell date to ICS date format.
+    $start = Get-Date $orig_start -Format $ICS_DateFormat
+    $end = Get-Date $orig_end -Format $ICS_DateFormat
 
-# This section creates the body of the event for each event in the JSON.
-$body = @"
+    $AllDay_end = (Get-Date $orig_end).AddDays(1)
+
+    # This section parses PowerShell date to ICS date format.
+    $AllDay_start = Get-Date $orig_start -Format $ICS_AllDayDateFormat
+    $AllDay_end = Get-Date $AllDay_end -Format $ICS_AllDayDateFormat
+
+    # This section creates the body of the event for each event in the JSON.
+    $body = @"
+BEGIN:VEVENT
+DTSTART;VALUE=DATE:$AllDay_start
+DTEND;VALUE=DATE:$AllDay_end
+DTSTAMP:$($DateStamp)Z
+UID:$id@$CompanyCode.tass.domain.com
+URL:$eurl
+CREATED:$start
+DESCRIPTION:$description
+LAST-MODIFIED:$($start)Z
+LOCATION:$location
+SEQUENCE:0
+STATUS:CONFIRMED
+SUMMARY:$title
+TRANSP:TRANSPARENT
+END:VEVENT
+"@
+    }else {
+    # This section parses TASS JSON date to PowerShell date format.
+    $start = [datetime]::parseexact($orig_start, 'yyyy-MM-dd HH:mm:ss', $null)
+    $end = [datetime]::parseexact($orig_end, 'yyyy-MM-dd HH:mm:ss', $null)
+
+    # This section parses PowerShell date to ICS date format.
+    $start = Get-Date $start -Format $ICS_DateFormat
+    $end = Get-Date $end -Format $ICS_DateFormat
+
+    # This section creates the body of the event for each event in the JSON.
+    $body = @"
 BEGIN:VEVENT
 DTSTART;TZID=$($tzid):$start
 DTEND;TZID=$($tzid):$end
@@ -243,6 +274,7 @@ SUMMARY:$title
 TRANSP:TRANSPARENT
 END:VEVENT
 "@
+    }
 
 # Add Events to ICS file
 Add-Content $TempFile $body
@@ -257,9 +289,27 @@ Write-Debug "Added Footer to ICS for $SchoolName."
 Rename-Item $TempFile -NewName $FinalFileName
 Write-Debug "Renamed ICS for $SchoolName."
 
-#Move ICS to webhost
-Move-Item $FinalFileName -Destination $Destination -Force
-Write-Debug "Moved ICS for $SchoolName."
+switch -Exact ($CalendarType)
+{
+  "Staff"{
+    #Move ICS to webhost
+    $Destination = "$($Destination)\staff"
+    Move-Item $FinalFileName -Destination $Destination -Force
+    Write-Debug "Moved ICS for $SchoolName."
+  }
+  "Student"{
+    #Move ICS to webhost
+    $Destination = "$($Destination)\student"
+    Move-Item $FinalFileName -Destination $Destination -Force
+    Write-Debug "Moved ICS for $SchoolName."
+  }
+  "Public"{
+    #Move ICS to webhost
+    $Destination = "$($Destination)\public"
+    Move-Item $FinalFileName -Destination $Destination -Force
+    Write-Debug "Moved ICS for $SchoolName."
+  }
+}
 
 Write-Debug "Finished ICS file creation for $SchoolName."
 }

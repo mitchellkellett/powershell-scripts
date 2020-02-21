@@ -22,10 +22,10 @@ This script generates an ICS file for each School listed in Data.csv. It utilise
 3.  Update $Destination to where the script is contained, this is on line 40 of Generate.ps1
 4.  Update TASS Domain on line 238 & 265 of Generate.ps1
 
-# Update Attendance Analytics
+## Update Attendance Analytics
 This script makes a post request to the TASS Update Student Class Absences Endpoint in the scheduled tasks workflow. It does this for all schools listed in the $Schools variable.
 
-## Setup
+### Setup
 1. Update the $Domain variable to the correct URL for your TASS instance.
 2. Update the $CompCodes variable with the company codes of the schools that you wish to update.
     - Ensure that you comma separate the list and enclose each company code in double quotes (eg. "01","02")
